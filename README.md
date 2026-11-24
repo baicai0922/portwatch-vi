@@ -75,4 +75,3 @@ Then open http://localhost:8080. To try the scout locally with Node 20+, run `no
 ## Disclaimer
 
 Fan-made and unofficial. Not affiliated with Rockstar Games, Take-Two or Microsoft. Scores are editorial estimates from public READMEs, commits and issues, and self-reported claims are labelled. Maintainers who think their project is mis-scored can open an issue with evidence.
-

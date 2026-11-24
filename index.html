@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title data-i18n="meta.title">PortWatch VI: Does GTA VI run on PC yet?</title>
-  <meta name="description" content="Live tracker of every community effort to recompile, emulate or port the leaked Xbox Series build of GTA VI to PC, scored from groundwork to stable 30 FPS.">
+  <meta name="description" content="Live tracker of every community effort to recompile, emulate or port the leaked Xbox Series build of GTA VI to PC, scored from groundwork to a game you can play to the end.">
   <link rel="canonical" href="https://baicai0922.github.io/portwatch-vi/">
   <meta name="robots" content="max-image-preview:large">
   <meta property="og:site_name" content="PortWatch VI">
@@ -150,7 +150,7 @@
           </div>
           <h1 data-i18n="hero.title">Does GTA VI run on&nbsp;PC&nbsp;yet?</h1>
           <p class="answer" id="answer" data-i18n="answer.notYet">Not yet.</p>
-          <p class="lede" data-i18n="hero.lede">Every serious attempt to recompile, emulate or port the leaked Xbox Series build to PC, scored on one ladder from groundwork to a stable 30&nbsp;FPS.</p>
+          <p class="lede" data-i18n="hero.lede">Every serious attempt to recompile, emulate or port the leaked Xbox Series build to PC, scored on one scale from groundwork to a game you can play to the end.</p>
         </div>
 
         <div class="hero-side">
@@ -224,7 +224,7 @@
         <div>
           <p class="kicker" data-i18n="race.kicker">Leaderboard</p>
           <h2 id="race-title" data-i18n="race.title">The race</h2>
-          <p class="sub" data-i18n="race.sub">The efforts with real code behind them, ranked by how close each is to running the game. Scores come from each project's public README, commits and issues. Self-reported claims are labelled.</p>
+          <p class="sub" data-i18n="race.sub">The efforts with public code, ranked by how close each is to running the game. Scores come from each project's public README, commits and issues. Self-reported claims are labelled. Private builds are listed below the race, without a rank.</p>
         </div>
         <div class="controls">
           <div class="chips" role="group" aria-label="Filter efforts" data-i18n-attr="aria-label:race.filterLabel">
@@ -242,6 +242,11 @@
         </div>
       </div>
       <ol class="race" id="race-list"></ol>
+      <div class="private-builds" id="private-builds" hidden>
+        <h3 class="pb-title"><span class="pb-lock" aria-hidden="true"></span><span data-i18n="private.title">Private builds · not ranked</span></h3>
+        <p class="sub" data-i18n="private.sub">These have no public code, so nobody outside the group can check or run them. Each one names the public project it builds on, and that project keeps its place in the race.</p>
+        <ul class="pb-list" id="private-list"></ul>
+      </div>
     </section>
 
     <section class="wrap section" id="news" aria-labelledby="news-title">
@@ -312,7 +317,7 @@
         <div>
           <p class="kicker" data-i18n="method.kicker">Methodology</p>
           <h2 id="method-title" data-i18n="method.title">How the progress bar works</h2>
-          <p class="sub" data-i18n="method.sub">One ladder for every project. Groundwork fills the first 25%: the parts that can be built before the executable exists. After that, a project only moves by reaching real milestones in GTA VI itself.</p>
+          <p class="sub" data-i18n="method.sub">One scale for every project, in two parts. Getting in is a ladder to 50%: groundwork fills the first 10%, then each step needs the one before it, up to Playable. Playing well fills the rest: how far you can play, how right it looks, how fast it runs and how long it keeps running. 100% is the whole game, finished.</p>
         </div>
       </div>
       <div class="method">
@@ -320,7 +325,7 @@
         <div class="card gw-explain">
           <h3 data-i18n="method.gwTitle">Groundwork, weighted</h3>
           <ul id="gw-explain"></ul>
-          <p class="fine" data-i18n="method.fine1">Past "In-game", the last 30 points split between frame rate (average FPS ÷ 30) and stability (from crashes often up to stable). Partial milestones, such as a menu that renders but is broken, count half.</p>
+          <p class="fine" data-i18n="method.fine1">Partial steps, such as a menu that renders but is broken, count half. The four tracks only count once a build is Playable: you can't judge how well a game plays before you can play it.</p>
           <p class="fine" data-i18n="method.fine2">Maintain a project and think it's mis-scored? Open an issue with a link to your evidence.</p>
         </div>
       </div>

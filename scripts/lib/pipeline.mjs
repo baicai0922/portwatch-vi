@@ -1,6 +1,6 @@
 // The scout pipeline (runs every 3 hours). Pure data-in / data-out: the caller loads and saves tracker.json.
 // Runs in Node (GitHub Actions) and in a browser (local testing).
-import { scoreEffort, overall } from '../../assets/js/scoring.js';
+import { scoreEffort, overall, isPrivateBuild } from '../../assets/js/scoring.js';
 import * as core from './core.mjs';
 
 const lc = (s) => String(s || '').toLowerCase();
@@ -471,7 +471,7 @@ export async function runScout(data, opts = {}) {
   for (const e of data.efforts) {
     const before = prevScores.get(e.id);
     const after = scoreEffort(e).score;
-    if (before == null) continue;
+    if (before == null || isPrivateBuild(e)) continue; // private builds show a stage, not a score
     const delta = Math.round((after - before) * 10) / 10;
     if (Math.abs(delta) >= 0.5) addChange(delta > 0 ? 'up' : 'down', `${e.name} ${delta > 0 ? 'rose' : 'fell'} ${Math.abs(delta)} pts to ${after}%.`);
   }

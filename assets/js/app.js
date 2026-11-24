@@ -1,4 +1,4 @@
-import { MILESTONES, GROUNDWORK, STABILITY, scoreEffort, overall, ladderValue, byStars } from './scoring.js';
+import { MILESTONES, GROUNDWORK, STABILITY, TRACKS, scoreEffort, overall, ladderValue, byStars, isPrivateBuild, trackStep } from './scoring.js';
 import { getLiveViewers, trackView } from './backend.js';
 import { coverHtml, articlePath } from './news-shared.js';
 import { fillPinned } from './pinned.js';
@@ -28,6 +28,16 @@ const gwLabel = (g) => tr(`gw.${g.key}.label`, g.label);
 const gwDesc = (g) => tr(`gw.${g.key}.desc`, g.desc);
 const stabLabel = (key) => tr(`stab.${key}`, (STABILITY[key] || STABILITY.unknown).label);
 const catLabel = (cat) => tr(`cat.${cat}`, cat);
+const trackLabel = (tk) => tr(`track.${tk.key}.label`, tk.label);
+const trackDesc = (tk) => tr(`track.${tk.key}.desc`, tk.desc);
+const stepLabel = (key, step) => tr(`track.${key}.step.${step.v}`, step.label);
+// README claims name a milestone or a track; older ones use the previous scale's keys.
+const OLD_CLAIM = { ingame: 'playable', fps30: 'perf', stable: 'stability' };
+const claimLabel = (key) => {
+  const k = OLD_CLAIM[key] || key;
+  const tk = TRACKS.find((x) => x.key === k);
+  return tk ? trackLabel(tk) : MILESTONES.some((m) => m.key === k) ? msLabel(k) : k;
+};
 
 function ago(iso) {
   const ms = Date.parse(iso);
@@ -187,7 +197,8 @@ function renderOverall(data) {
   const leader = ov.leader?.effort;
   animateNumber($('#ov-score'), ov.score);
   $('#ov-leader').innerHTML = leader
-    ? `${esc(t('ov.leader'))} <a href="#effort-${esc(leader.id)}">${esc(leader.name)}</a> ${hasRepo(leader) ? `${esc(t('ov.byOwner', { owner: owner(leader.repo) }))} ` : ''}${esc(ov.leader.reached === 'groundwork' ? t('ov.stillGroundwork') : t('ov.reached', { label: msLabel(ov.leader.reached) }))}`
+    ? `${esc(t('ov.leader'))} <a href="#effort-${esc(leader.id)}">${esc(leader.name)}</a> ${hasRepo(leader) ? `${esc(t('ov.byOwner', { owner: owner(leader.repo) }))} `
+      : leader.basedOn?.length ? `<span class="ov-private"><span class="pb-lock" aria-hidden="true"></span>${t('ov.privateOn', { names: leader.basedOn.map((id) => `<a href="#effort-${esc(id)}">${esc(effortName(id))}</a>`).join(', ') })}</span> ` : ''}${esc(ov.leader.reached === 'groundwork' ? t('ov.stillGroundwork') : t('ov.reached', { label: msLabel(ov.leader.reached) }))}`
     : esc(t('ov.none'));
   $('#ov-stage').textContent = msLabel(ov.furthest.key);
   $('#ov-top3').textContent = `${pct(ov.top3)}%`;
@@ -195,8 +206,9 @@ function renderOverall(data) {
   $('#ov-boot').textContent = `${booted} / ${all.length}`;
   $('#ov-count').textContent = `${all.length}`;
 
-  const answer = { groundwork: 'notYet', loads: 'notYet', boots: 'notYet', menu: 'notYet', ingame: 'sortOf', fps30: 'mostly', stable: 'yes' };
-  $('#answer').textContent = t(`answer.${answer[ov.furthest.key]}`);
+  // "Does GTA VI run on PC yet?": not until someone can play it; mostly once it plays well; yes when it's complete.
+  const answer = ov.furthest.key === 'complete' ? 'yes' : ov.score >= 75 ? 'mostly' : ov.furthest.key === 'playable' ? 'sortOf' : 'notYet';
+  $('#answer').textContent = t(`answer.${answer}`);
 
   // Ticks + labels
   const furthestIdx = MILESTONES.findIndex((m) => m.key === ov.furthest.key);
@@ -204,7 +216,9 @@ function renderOverall(data) {
   $('#mega-labels').innerHTML = MILESTONES.map((m, i) => {
     const cls = i <= furthestIdx ? 'is-reached' : i === furthestIdx + 1 ? 'is-next' : '';
     return `<div class="mega-label ${cls}" style="left:${m.at}%" data-tip="${esc(msDesc(m))}" data-tip-title="${esc(msLabel(m.key))}"><b>${m.at}%</b><span class="dot"></span>${esc(msLabel(m.key))}</div>`;
-  }).join('');
+  }).join('') +
+    // Between Playable and Complete there's no single next step: the four tracks fill it side by side.
+    `<p class="mega-zone" data-tip="${esc(t('method.tracksSub'))}" data-tip-title="${esc(t('method.tracksTitle'))}">${TRACKS.map((tk) => esc(trackLabel(tk))).join(' · ')}</p>`;
   $('#mega-fill').dataset.width = ov.score;
 
   const top = ov.ranked.slice(0, 6);
@@ -237,17 +251,25 @@ function drawMarkers(ranked, leader) {
   const avatarY = H - 66;
   const lines = items.map((it) => {
     const y0 = avatarY + 32;
-    return `<path d="M${it.a} ${y0} C ${it.a} ${y0 + 18}, ${it.x} ${H - 18}, ${it.x} ${H}" fill="none" stroke="${it.r.effort === leader ? '#ff2e7e' : 'var(--line-2)'}" stroke-width="1.6"/>
-            <circle cx="${it.x}" cy="${H - 1}" r="3" fill="${it.r.effort === leader ? '#ff2e7e' : 'var(--faint)'}"/>`;
+    const priv = isPrivateBuild(it.r.effort);
+    const color = it.r.effort === leader ? '#ff2e7e' : priv ? '#7a5cff' : 'var(--line-2)';
+    return `<path d="M${it.a} ${y0} C ${it.a} ${y0 + 18}, ${it.x} ${H - 18}, ${it.x} ${H}" fill="none" stroke="${color}" stroke-width="1.6"${priv ? ' stroke-dasharray="3 3"' : ''}/>
+            <circle cx="${it.x}" cy="${H - 1}" r="3" fill="${it.r.effort === leader ? '#ff2e7e' : priv ? '#7a5cff' : 'var(--faint)'}"/>`;
   }).join('');
   box.innerHTML = `<svg width="${W}" height="${H}" style="position:absolute;inset:0;overflow:visible" aria-hidden="true">${lines}</svg>` +
-    items.map((it) => {
+    items.map((it, i) => {
       const e = it.r.effort;
       const src = effortAvatar(e);
-      return `<a class="marker ${e === leader ? 'is-leader' : ''}" href="#effort-${esc(e.id)}" style="left:${it.a}px;bottom:${H - avatarY - 32}px"
-                data-tip-title="${esc(e.name)} · ${pct(it.r.score)}%" data-tip="${esc(msLabel(it.r.reached))} · ${esc(e.approach || '')}">
+      const priv = isPrivateBuild(e);
+      const face = src ? `<img src="${esc(src)}" alt="" loading="lazy" data-fallback="${esc(e.name.slice(0, 2))}">` : `<span class="mk-fallback">${esc(e.name.slice(0, 2))}</span>`;
+      // Private builds float, with a lock badge; the tooltip names what they build on.
+      const tip = priv
+        ? `${msLabel(it.r.reached)} · ${t('private.markerTip', { names: (e.basedOn || []).map(effortName).join(', ') || '-' })}`
+        : `${msLabel(it.r.reached)} · ${e.approach || ''}`;
+      return `<a class="marker ${e === leader ? 'is-leader' : ''}${priv ? ' is-private' : ''}" href="#effort-${esc(e.id)}" style="left:${it.a}px;bottom:${H - avatarY - 32}px;--i:${i}"
+                data-tip-title="${esc(e.name)} · ${pct(it.r.score)}%" data-tip="${esc(tip)}">
                 <span class="mk-name">${esc(e.name)} · ${pct(it.r.score)}%</span>
-                ${src ? `<img src="${esc(src)}" alt="" loading="lazy" data-fallback="${esc(e.name.slice(0, 2))}">` : `<span class="mk-fallback">${esc(e.name.slice(0, 2))}</span>`}
+                ${priv ? `<span class="mk-face">${face}<span class="bp-lock"><span class="pb-lock" aria-hidden="true"></span></span></span>` : face}
               </a>`;
     }).join('');
 }
@@ -284,7 +306,8 @@ function isGtaSpecific(e) { return /gta/i.test(e.target || ''); }
 
 function renderRace() {
   const { data, filter, sort } = state;
-  let list = data.efforts.filter((e) => e.tier === 'tracked');
+  // Only public code is ranked; private builds get their own unranked list below the race.
+  let list = data.efforts.filter((e) => e.tier === 'tracked' && !isPrivateBuild(e));
   if (filter === 'gta') list = list.filter(isGtaSpecific);
   if (filter === 'generic') list = list.filter((e) => !isGtaSpecific(e));
   // Nuked efforts (taken offline) stay on the board for the record, after the ranked ones and without a rank.
@@ -294,7 +317,7 @@ function renderRace() {
     stars: byStars,
     active: (a, b) => Date.parse(b.stats?.pushedAt || 0) - Date.parse(a.stats?.pushedAt || 0),
   };
-  const ranked = [...data.efforts.filter((e) => e.tier === 'tracked' && !e.nuked)].sort(byScore);
+  const ranked = [...data.efforts.filter((e) => e.tier === 'tracked' && !e.nuked && !isPrivateBuild(e))].sort(byScore);
   const rankedInFilter = list.filter((e) => !e.nuked).sort(byScore);
   const filtered = filter !== 'all';
   list.sort(sorters[sort] || byScore);
@@ -304,30 +327,138 @@ function renderRace() {
     return effortCard(e, rank, sort === 'score' && !e.nuked ? i < 3 : false, filtered ? overall : null);
   }).join('') ||
     `<li class="empty">${esc(t('race.empty'))}</li>`;
+  renderPrivateBuilds();
   observeBars();
 }
 
+/* ---------- Private builds ---------- */
+const privateBuilds = () => state.data.efforts
+  .filter((e) => e.tier === 'tracked' && !e.nuked && isPrivateBuild(e))
+  .sort((a, b) => b._s.score - a._s.score);
+const effortName = (id) => state.data.efforts.find((e) => e.id === id)?.name || id;
+
+function renderPrivateBuilds() {
+  const list = privateBuilds();
+  $('#private-builds').hidden = !list.length;
+  $('#private-list').innerHTML = list.map(privateCard).join('');
+}
+
+// No score or rank: the stage it reports, how we know, and the public projects it builds on.
+function privateCard(e) {
+  const url = effortUrl(e);
+  const src = effortAvatar(e);
+  const bases = (e.basedOn || []).map((id) => `<a href="#effort-${esc(id)}">${esc(effortName(id))}</a>`).join(` ${esc(t('private.and'))} `);
+  return `
+  <li class="pb" id="effort-${esc(e.id)}">
+    <div class="pb-top">
+      ${src ? `<img class="e-avatar" src="${esc(src)}" alt="" loading="lazy" data-hide-on-error>` : `<span class="pb-avatar" aria-hidden="true">${esc(e.name.slice(0, 2))}</span>`}
+      <div class="e-title">
+        <h3>${url ? `<a href="${esc(url)}">${esc(e.name)}</a>` : esc(e.name)}</h3>
+        <p class="e-by">${esc(e.byline || '')}</p>
+      </div>
+      <div class="pb-stage"><b>${pct(e._s.score)}<span>%</span></b><small>${esc(t('private.notRanked', { stage: msLabel(e._s.reached) }))}</small></div>
+    </div>
+    <div class="tags">
+      ${bases ? `<span class="tag tag-based">${t('private.basedOn', { names: bases })}</span>` : ''}
+      ${e.evidence ? `<span class="tag tag-self" title="${esc(t('private.evidenceTitle'))}">${esc(t('private.evidence', { x: e.evidence }))}</span>` : ''}
+      <span class="tag tag-stale">${esc(t('private.noCode'))}</span>
+    </div>
+    <p class="e-summary">${esc(e.summary)}</p>
+    <div class="pb-ladder">${ladderCells(e)}</div>
+    ${url ? `<a class="pb-more" href="${esc(url)}">${esc(t('private.article'))} →</a>` : ''}
+  </li>`;
+}
+
+// On a public project's card: the private builds that build on its code, best first.
+const privateKids = (e) => privateBuilds().filter((p) => (p.basedOn || []).includes(e.id));
+
+const buildFace = (p) => {
+  const src = effortAvatar(p);
+  return src ? `<img src="${esc(src)}" alt="" loading="lazy" data-fallback="${esc(p.name.slice(0, 2))}">` : esc(p.name.slice(0, 2));
+};
+
+// Floating bubbles over the card's bar, each where that private build would score.
+// Bubbles closer than 6% of the bar would overlap, so each one rises a level above the ones near it.
+function buildPins(kids) {
+  const placed = [];
+  const pins = kids.map((p, i) => {
+    const x = Math.min(97, Math.max(3, p._s.score));
+    const level = placed.filter((q) => Math.abs(q - x) < 6).length;
+    placed.push(x);
+    return { p, i, x, level };
+  });
+  const maxLevel = Math.max(0, ...pins.map((q) => q.level));
+  return { maxLevel, html: `<div class="bp-layer">${pins.map(({ p, i, x, level }) => `
+    <a class="bp" href="#effort-${esc(p.id)}" style="left:${x}%;--i:${i};--lift:${level * 46}px"
+       data-tip-title="${esc(p.name)} · ${pct(p._s.score)}%" data-tip="${esc(t('private.pinTip', { stage: msLabel(p._s.reached) }))}">
+      <span class="bp-bubble">${buildFace(p)}<span class="bp-lock"><span class="pb-lock" aria-hidden="true"></span></span></span>
+      <span class="bp-stem" aria-hidden="true"></span>
+    </a>`).join('')}</div>` };
+}
+
+// A small ranking inside the card: this repo and the private builds on its code, side by side.
+function onThisCode(e, kids) {
+  if (!kids.length) return '';
+  const rows = [...kids, e].sort((a, b) => b._s.score - a._s.score);
+  return `<div class="otc">
+    <p class="otc-title"><span class="pb-lock" aria-hidden="true"></span>${esc(t('effort.onThisCode'))}</p>
+    <ol>${rows.map((r, i) => {
+      const self = r === e;
+      return `<li class="${self ? 'otc-self' : 'otc-private'}">
+        <span class="otc-rank">${i + 1}</span>
+        <span class="otc-av">${self ? (effortAvatar(r) ? `<img src="${esc(effortAvatar(r))}" alt="" loading="lazy" data-hide-on-error>` : '') : buildFace(r)}</span>
+        <span class="otc-name">${self ? esc(r.name) : `<a href="#effort-${esc(r.id)}">${esc(r.name)}</a>`}</span>
+        <span class="otc-badge ${self ? 'is-self' : ''}">${esc(self ? t('effort.thisRepo') : t('effort.privateBadge'))}</span>
+        <span class="otc-stage">${esc(msLabel(r._s.reached))}</span>
+        <b>${pct(r._s.score)}%</b>
+      </li>`;
+    }).join('')}</ol>
+  </div>`;
+}
+
+// The six steps to Playable, then the four tracks (greyed out until Playable, when they start to count).
 function ladderCells(e) {
   const g = e.gta || {};
   const gw = e._s.groundwork;
   const st = (v) => (v >= 1 ? 'is-reached' : v > 0 ? 'is-partial' : '');
-  const fpsV = Math.min(1, (+g.fps || 0) / 30);
-  const stabV = (STABILITY[g.stability] || STABILITY.unknown).value;
-  const fpsLabel = t('effort.fps', { n: g.fps ? Math.round(g.fps) : 30 });
-  const stab = g.stability && g.stability !== 'unknown' && STABILITY[g.stability] ? stabLabel(g.stability) : msLabel('stable');
   // Past "Exe runs" the score no longer depends on groundwork, so that step reads as done.
   const pastGroundwork = ladderValue(g.loads) >= 1;
-  return `
-    <span class="${pastGroundwork ? 'is-reached' : st(gw)}" title="${esc(msDesc(MILESTONES[0]))}">${esc(pastGroundwork ? msLabel('groundwork') : t('effort.groundworkPct', { n: Math.round(gw * 100) }))}</span>
-    <span class="${st(ladderValue(g.loads))}">${esc(msLabel('loads'))}</span>
-    <span class="${st(ladderValue(g.boots))}">${esc(msLabel('boots'))}</span>
-    <span class="${st(ladderValue(g.menu))}">${esc(msLabel('menu'))}</span>
-    <span class="${st(ladderValue(g.ingame))}">${esc(msLabel('ingame'))}</span>
-    <div><span class="${st(fpsV)}">${esc(fpsLabel)}</span><span class="${st(stabV)}">${esc(stab)}</span></div>`;
+  const steps = ['loads', 'boots', 'menu', 'world', 'playable'].map((k) =>
+    `<span class="${st(ladderValue(g[k]))}" title="${esc(msDesc(MILESTONES.find((m) => m.key === k)))}">${esc(msLabel(k))}</span>`).join('');
+  return `<div class="ladder">
+      <span class="${pastGroundwork ? 'is-reached' : st(gw)}" title="${esc(msDesc(MILESTONES[0]))}">${esc(pastGroundwork ? msLabel('groundwork') : t('effort.groundworkPct', { n: Math.round(gw * 100) }))}</span>
+      ${steps}
+    </div>
+    ${trackRow(e)}`;
+}
+
+// What each track reads as, in words: a written step, a frame rate or a stability label.
+function trackText(key, g, v) {
+  if (key === 'perf') return g.fps ? t('effort.fps', { n: Math.round(g.fps) }) : t('track.unmeasured');
+  if (key === 'stability') return stabLabel(g.stability && STABILITY[g.stability] ? g.stability : 'unknown');
+  const step = trackStep(key, v);
+  return step ? stepLabel(key, step) : '';
+}
+
+function trackRow(e) {
+  const g = e.gta || {};
+  const on = e._s.playable;
+  return `<div class="tracks${on ? '' : ' is-locked'}" ${on ? '' : `title="${esc(t('track.locked'))}"`}>
+    ${TRACKS.map((tr) => {
+      const v = e._s.tracks[tr.key];
+      return `<div class="trk" title="${esc(trackDesc(tr))}">
+        <span class="trk-label">${esc(trackLabel(tr))}</span>
+        <span class="trk-bar"><i data-width="${on ? v * 100 : 0}"></i></span>
+        <span class="trk-val">${esc(on ? trackText(tr.key, g, v) : '–')}</span>
+      </div>`;
+    }).join('')}
+  </div>`;
 }
 
 function effortCard(e, rank, open, overallRank = null) {
   const s = e._s;
+  const kids = privateKids(e);
+  const pins = kids.length ? buildPins(kids) : null;
   const st = e.stats || {};
   const ticks = MILESTONES.slice(1, -1).map((m) => `<i style="left:${m.at}%"></i>`).join('');
   const stale = st.pushedAt && daysSince(st.pushedAt) > 3;
@@ -346,7 +477,7 @@ function effortCard(e, rank, open, overallRank = null) {
     const v = Math.max(0, Math.min(1, +(e.groundwork?.[g.key]) || 0));
     return `<div class="gw-row" title="${esc(gwDesc(g))}"><span>${esc(gwLabel(g))}</span><b>${Math.round(v * 100)}%</b><div class="gw-bar"><i data-width="${v * 100}"></i></div></div>`;
   }).join('');
-  const claims = (e.claims || []).slice(0, 2).map((c) => `<div class="claim"><b>${esc(t('effort.claim'))}</b> “${esc(c.text)}”, ${esc(t('effort.mayMean'))} <em>${esc(MILESTONES.some((m) => m.key === c.milestone) ? msLabel(c.milestone) : c.milestone)}</em>. ${esc(t('effort.awaiting'))}</div>`).join('');
+  const claims = (e.claims || []).slice(0, 2).map((c) => `<div class="claim"><b>${esc(t('effort.claim'))}</b> “${esc(c.text)}”, ${esc(t('effort.mayMean'))} <em>${esc(claimLabel(c.milestone))}</em>. ${esc(t('effort.awaiting'))}</div>`).join('');
   const src = effortAvatar(e);
   const url = effortUrl(e);
   const external = hasRepo(e) ? ' target="_blank" rel="noopener"' : '';
@@ -365,9 +496,11 @@ function effortCard(e, rank, open, overallRank = null) {
       </div>
       <div class="tags">${tags}</div>
       <p class="e-summary">${esc(e.summary)}</p>
-      <div class="bar" aria-label="${esc(t('effort.progressLabel', { name: e.name, n: pct(s.score) }))}">
+      ${onThisCode(e, kids)}
+      <div class="bar${pins ? ' has-pins' : ''}"${pins?.maxLevel ? ` style="margin-top:${50 + pins.maxLevel * 46}px"` : ''} aria-label="${esc(t('effort.progressLabel', { name: e.name, n: pct(s.score) }))}">
+        ${pins ? pins.html : ''}
         <div class="bar-track"><div class="bar-fill" data-width="${s.score}"></div><div class="bar-ticks">${ticks}</div></div>
-        <div class="ladder">${ladderCells(e)}</div>
+        ${ladderCells(e)}
       </div>
       ${claims}
       <div class="e-details" ${open ? '' : 'hidden'}>
@@ -518,9 +651,15 @@ function renderFlags(flags) {
 
 /* ---------- Method ---------- */
 function renderMethod() {
-  $('#ladder-explain').innerHTML = MILESTONES.map((m, i) => `
-    <li><span class="le-at">${i === 0 ? '0–25' : m.at}</span><div><h4>${esc(msLabel(m.key))}</h4><p>${esc(msDesc(m))}</p></div></li>`).join('');
-  $('#gw-explain').innerHTML = GROUNDWORK.map((g) => `<li><b>${esc(gwLabel(g))}<span>${esc(t('method.pts', { n: Math.round(g.weight * 25 * 10) / 10 }))}</span></b>${esc(gwDesc(g))}</li>`).join('');
+  const gwShare = MILESTONES[1].at;
+  const playAt = MILESTONES.find((m) => m.key === 'playable').at;
+  const span = MILESTONES[MILESTONES.length - 1].at - playAt;
+  $('#ladder-explain').innerHTML = MILESTONES.filter((m) => m.key !== 'complete').map((m, i) => `
+    <li><span class="le-at">${i === 0 ? `0–${gwShare}` : m.at}</span><div><h4>${esc(msLabel(m.key))}</h4><p>${esc(msDesc(m))}</p></div></li>`).join('') +
+    `<li class="le-tracks"><span class="le-at">${playAt}–100</span><div><h4>${esc(t('method.tracksTitle'))}</h4><p>${esc(t('method.tracksSub'))}</p>
+      <ul>${TRACKS.map((tk) => `<li><b>${esc(trackLabel(tk))}<span>${esc(t('method.pts', { n: Math.round(tk.weight * span * 10) / 10 }))}</span></b>${esc(trackDesc(tk))}${
+        tk.steps ? `<small>${tk.steps.map((s) => esc(stepLabel(tk.key, s))).join(' → ')}</small>` : ''}</li>`).join('')}</ul></div></li>`;
+  $('#gw-explain').innerHTML = GROUNDWORK.map((g) => `<li><b>${esc(gwLabel(g))}<span>${esc(t('method.pts', { n: Math.round(g.weight * gwShare * 10) / 10 }))}</span></b>${esc(gwDesc(g))}</li>`).join('');
 }
 
 /* ---------- Interaction ---------- */

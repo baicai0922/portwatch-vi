@@ -395,15 +395,17 @@ export function substance(meta, readme = '', commits7d = null) {
 // Spot new milestone claims for GTA VI in a README, ignoring negated or future-tense lines.
 const GTA = '(gta ?(vi|6)|grand theft auto (vi|6))';
 const CLAIMS = [
-  { milestone: 'stable', re: new RegExp(`${GTA}[^\\n]{0,140}(stable|no crashes|hours without crash)`, 'i') },
-  { milestone: 'fps30', re: new RegExp(`${GTA}[^\\n]{0,140}\\b([3-9]\\d|1\\d\\d)\\s?fps`, 'i') },
-  { milestone: 'ingame', re: new RegExp(`${GTA}[^\\n]{0,140}(in[- ]game|gameplay|story mode|playable|driving|walk(ing)? around)`, 'i') },
-  { milestone: 'menu', re: new RegExp(`${GTA}[^\\n]{0,140}(main menu|title screen|pause menu)`, 'i') },
+  { milestone: 'stability', re: new RegExp(`${GTA}[^\\n]{0,140}(stable|no crashes|hours without crash)`, 'i') },
+  { milestone: 'perf', re: new RegExp(`${GTA}[^\\n]{0,140}\\b([3-9]\\d|1\\d\\d)\\s?fps`, 'i') },
+  { milestone: 'playable', re: new RegExp(`${GTA}[^\\n]{0,140}(gameplay|playable|driving|walk(ing)? around|pad input|controller input|pause menu)`, 'i') },
+  { milestone: 'world', re: new RegExp(`${GTA}[^\\n]{0,140}(in[- ]game|story mode|the world|open world|prologue|first mission)`, 'i') },
+  { milestone: 'menu', re: new RegExp(`${GTA}[^\\n]{0,140}(main menu|title screen|start screen)`, 'i') },
   { milestone: 'boots', re: new RegExp(`${GTA}[^\\n]{0,140}(boots|first frame|intro|logos|loading screen|splash)`, 'i') },
   { milestone: 'loads', re: new RegExp(`${GTA}[^\\n]{0,140}(entry ?point (runs|reached)|executable (loads|runs)|imports resolve)`, 'i') },
 ];
 const NEGATED = /(\bno\b|\bnot\b|n't\b|\bnever\b|❌|blocked|\buntil\b|\bonce\b|\bwhen\b|\bwill\b|\bplan|todo|\bgoal\b|\bwaiting\b|\bmissing\b|\bif\b|\bcan(not)?\b)/i;
-const ORDER = ['groundwork', 'loads', 'boots', 'menu', 'ingame', 'fps30', 'stable'];
+// Tracks (perf, stability) sit after Playable: claims about them matter once a build plays.
+const ORDER = ['groundwork', 'loads', 'boots', 'menu', 'world', 'playable', 'perf', 'stability', 'complete'];
 
 export function detectClaims(readme, reachedKey = 'groundwork') {
   const reachedIdx = ORDER.indexOf(reachedKey);
