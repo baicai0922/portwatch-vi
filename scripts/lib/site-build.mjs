@@ -75,7 +75,6 @@ function shell({ title, description, canonical, ogType = 'website', image, image
         <a href="../#race">Race</a>
         <a href="./" class="is-current">News</a>
         <a href="../#method">Scoring</a>
-        <a href="../#safety" class="nav-warn">Fake downloads</a>
       </nav>
     </div>
   </header>

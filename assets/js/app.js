@@ -1,4 +1,4 @@
-import { MILESTONES, GROUNDWORK, STABILITY, TRACKS, scoreEffort, overall, ladderValue, byStars, isPrivateBuild, trackStep } from './scoring.js';
+import { MILESTONES, GROUNDWORK, STABILITY, TRACKS, scoreEffort, overall, ladderValue, byStars, isPrivateBuild, trackStep, stabilityKey } from './scoring.js';
 import { getLiveViewers, trackView } from './backend.js';
 import { coverHtml, articlePath } from './news-shared.js';
 import { fillPinned } from './pinned.js';
@@ -91,10 +91,9 @@ async function main() {
   renderNews(data.news || []);
   renderWatchlist(data);
   renderTools(data.tools || []);
-  renderInbox(data);
-  renderFlags(data.flagged || []);
   renderMethod();
   bindControls();
+  bindFolds();
   observeBars();
   trackView('/').then(watchViewers); // afterwards, so this visitor is in the count
 }
@@ -192,7 +191,7 @@ function startCountdown(exe) {
 
 /* ---------- Overall ---------- */
 function renderOverall(data) {
-  const all = data.efforts;
+  const all = data.efforts.filter((e) => !e.nuked); // nuked efforts aren't shown anywhere
   const ov = overall(all);
   const leader = ov.leader?.effort;
   animateNumber($('#ov-score'), ov.score);
@@ -222,8 +221,9 @@ function renderOverall(data) {
   $('#mega-fill').dataset.width = ov.score;
 
   const top = ov.ranked.slice(0, 6);
-  const draw = () => drawMarkers(top, leader);
+  const draw = () => { drawMarkers(top, leader); layoutMegaLabels(); };
   draw();
+  document.fonts?.ready.then(draw); // Inter swaps in after first paint and changes label widths
   let raf;
   window.addEventListener('resize', () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(draw); });
 
@@ -274,6 +274,34 @@ function drawMarkers(ranked, leader) {
     }).join('');
 }
 
+// Milestone labels sit under their ticks, 10% apart up to Playable. When neighbours would touch
+// (phones, longer translations), they're dealt into the fewest rows that keep every row clear:
+// 1-2-1-2, then 1-2-3-1-2-3 and so on, so each row still reads left to right.
+function layoutMegaLabels() {
+  const box = $('#mega-labels');
+  const labels = [...box.querySelectorAll('.mega-label')];
+  if (!labels.length || !box.clientWidth) return;
+  labels.forEach((l) => { l.style.top = '0px'; });
+  const span = (el) => { const r = el.getBoundingClientRect(); return [r.left, r.right]; };
+  const spans = labels.map(span);
+  // The track names between Playable and Complete share the first row (hidden on phones).
+  // Their CSS already stops short of Complete, so only the steps up to Playable are checked against them.
+  const zone = box.querySelector('.mega-zone');
+  const zoneSpan = zone && zone.getClientRects().length ? span(zone) : null;
+  const last = labels.length - 1;
+  const GAP = 10;
+  const clear = (a, b) => a[1] + GAP <= b[0] || b[1] + GAP <= a[0];
+  const fits = (rows) => spans.every((a, i) =>
+    (i % rows || i === last || !zoneSpan || clear(a, zoneSpan)) &&
+    spans.every((b, j) => j <= i || (j - i) % rows || clear(a, b)));
+  let rows = 1;
+  while (rows < labels.length && !fits(rows)) rows++;
+  const h = Math.max(...labels.map((l) => l.offsetHeight));
+  const step = h + 6;
+  labels.forEach((l, i) => { l.style.top = `${(i % rows) * step}px`; });
+  box.style.height = `${(rows - 1) * step + h + 14}px`;
+}
+
 function renderHistory(history) {
   const box = $('#ov-history');
   const pts = history.filter((h) => Number.isFinite(h.leader));
@@ -304,13 +332,20 @@ function renderChanges(changes) {
 /* ---------- Race ---------- */
 function isGtaSpecific(e) { return /gta/i.test(e.target || ''); }
 
+// The graphics cards a build has been run on (`gpu`: ["AMD"], ["NVIDIA"] or both, main one first),
+// from its README's test machine or the owner's report. Left off when nobody has said.
+const GPU_CLASS = { AMD: 'tag-amd', NVIDIA: 'tag-nvidia' };
+const gpuTags = (e) => (Array.isArray(e.gpu) ? e.gpu : []).filter((v) => GPU_CLASS[v])
+  .map((v) => `<span class="tag ${GPU_CLASS[v]}" title="${esc(t('effort.gpuTitle', { v }))}">${esc(v)}</span>`).join('');
+
 function renderRace() {
   const { data, filter, sort } = state;
   // Only public code is ranked; private builds get their own unranked list below the race.
-  let list = data.efforts.filter((e) => e.tier === 'tracked' && !isPrivateBuild(e));
+  // Nuked efforts (taken offline) aren't shown (owner's call, 2026-11-25). They stay in tracker.json,
+  // where their repo names keep the scout from listing copies of them as new candidates.
+  let list = data.efforts.filter((e) => e.tier === 'tracked' && !e.nuked && !isPrivateBuild(e));
   if (filter === 'gta') list = list.filter(isGtaSpecific);
   if (filter === 'generic') list = list.filter((e) => !isGtaSpecific(e));
-  // Nuked efforts (taken offline) stay on the board for the record, after the ranked ones and without a rank.
   const byScore = (a, b) => Number(!!a.nuked) - Number(!!b.nuked) || b._s.score - a._s.score || byStars(a, b);
   const sorters = {
     score: byScore,
@@ -360,8 +395,10 @@ function privateCard(e) {
     </div>
     <div class="tags">
       ${bases ? `<span class="tag tag-based">${t('private.basedOn', { names: bases })}</span>` : ''}
+      ${gpuTags(e)}
       ${e.evidence ? `<span class="tag tag-self" title="${esc(t('private.evidenceTitle'))}">${esc(t('private.evidence', { x: e.evidence }))}</span>` : ''}
       <span class="tag tag-stale">${esc(t('private.noCode'))}</span>
+      ${e.proof?.url ? `<a class="tag tag-proof" href="${esc(safeHttp(e.proof.url))}" target="_blank" rel="noopener nofollow" title="${esc(e.proof.url)}">${esc(e.proof.label || 'Watch')} ↗</a>` : ''}
     </div>
     <p class="e-summary">${esc(e.summary)}</p>
     <div class="pb-ladder">${ladderCells(e)}</div>
@@ -435,7 +472,7 @@ function ladderCells(e) {
 // What each track reads as, in words: a written step, a frame rate or a stability label.
 function trackText(key, g, v) {
   if (key === 'perf') return g.fps ? t('effort.fps', { n: Math.round(g.fps) }) : t('track.unmeasured');
-  if (key === 'stability') return stabLabel(g.stability && STABILITY[g.stability] ? g.stability : 'unknown');
+  if (key === 'stability') return stabLabel(stabilityKey(g.stability));
   const step = trackStep(key, v);
   return step ? stepLabel(key, step) : '';
 }
@@ -465,13 +502,19 @@ function effortCard(e, rank, open, overallRank = null) {
   const tags = [
     e.approach && `<span class="tag">${esc(e.approach)}</span>`,
     e.target && `<span class="tag ${isGtaSpecific(e) ? 'tag-gta' : ''}">${esc(e.target)}</span>`,
+    gpuTags(e),
     e.verification === 'reproduced'
       ? `<span class="tag tag-ok">${esc(t('effort.reproduced'))}</span>`
-      : `<span class="tag tag-self" title="${esc(t('effort.selfTitle'))}">${esc(t('effort.self'))}</span>`,
+      // The owner has seen the build run (owner's call): stronger than the README alone.
+      : e.verification === 'portwatch'
+        ? `<span class="tag tag-ok" title="${esc(t('effort.verifiedTitle'))}">${esc(t('effort.verified'))}</span>`
+        : `<span class="tag tag-self" title="${esc(t('effort.selfTitle'))}">${esc(t('effort.self'))}</span>`,
     e.provenOn && ladderValue(e.groundwork?.proven) > 0 && `<span class="tag tag-proven" title="${esc(t('effort.runsTitle'))}">${esc(t('effort.runs', { x: e.provenOn }))}</span>`,
     stale && `<span class="tag tag-stale">${esc(t('effort.quiet', { n: Math.floor(daysSince(st.pushedAt)) }))}</span>`,
     st.missing && `<span class="tag tag-stale">${esc(t('effort.gone'))}</span>`,
     st.dmca && `<a class="tag tag-stale" href="${esc(safeHttp(st.dmca.url))}" target="_blank" rel="noopener" title="${esc(t('effort.dmcaTitle'))}">${esc(t('effort.dmca', { date: st.dmca.date || '' }))}</a>`,
+    // A recording that backs the entry up (owner-added), opened off-site.
+    e.proof?.url && `<a class="tag tag-proof" href="${esc(safeHttp(e.proof.url))}" target="_blank" rel="noopener nofollow" title="${esc(e.proof.url)}">${esc(e.proof.label || 'Watch')} ↗</a>`,
   ].filter(Boolean).join('');
   const gwRows = GROUNDWORK.map((g) => {
     const v = Math.max(0, Math.min(1, +(e.groundwork?.[g.key]) || 0));
@@ -533,13 +576,14 @@ function effortCard(e, rank, open, overallRank = null) {
 function renderWatchlist(data) {
   const rows = data.efforts.filter((e) => e.tier === 'watchlist').sort((a, b) => b._s.score - a._s.score || byStars(a, b));
   if (!rows.length) { $('#watchlist').hidden = true; return; }
-  const head = ['watch.project', 'watch.approach', 'watch.progress', 'watch.stars', 'watch.lastPush'].map((k) => `<span>${esc(t(k))}</span>`).join('');
+  foldLabel($('#watch-toggle'), t('fold.projects', { n: rows.length }));
+  const head =['watch.project', 'watch.approach', 'watch.progress', 'watch.stars', 'watch.lastPush'].map((k) => `<span>${esc(t(k))}</span>`).join('');
   $('#watch-list').innerHTML = `
     <div class="w-row w-head" role="row">${head}</div>` +
     rows.map((e) => `
     <div class="w-row" role="row" id="effort-${esc(e.id)}">
       <div class="w-name"><a href="${esc(repoUrl(e.repo, e.branch))}" target="_blank" rel="noopener">${esc(e.name)}</a><p>${esc(e.summary)}</p></div>
-      <span class="w-muted">${esc(e.approach)}${e.target && /gta|ps5/i.test(e.target) ? ` · ${esc(e.target)}` : ''}</span>
+      <span class="w-muted">${esc(e.approach)}${e.target && /gta|ps5/i.test(e.target) ? ` · ${esc(e.target)}` : ''}${e.gpu?.length ? `<span class="w-gpu">${gpuTags(e)}</span>` : ''}</span>
       <div class="w-bar"><div class="bar-track"><div class="bar-fill" data-width="${e._s.score}"></div></div><b>${pct(e._s.score)}%</b></div>
       <span class="w-muted">★ ${fmtK(e.stats?.stars)}</span>
       <span class="w-muted">${esc(ago(e.stats?.pushedAt))}</span>
@@ -548,6 +592,8 @@ function renderWatchlist(data) {
 
 /* ---------- Toolkit ---------- */
 function renderTools(tools) {
+  if (!tools.length) { $('#toolkit').hidden = true; return; }
+  foldLabel($('#tools-toggle'), t('fold.tools', { n: tools.length }));
   $('#tools-list').innerHTML = tools.map((x) => `
     <a class="tool" href="${esc(repoUrl(x.repo))}" target="_blank" rel="noopener">
       <span class="t-kind">${esc(x.kind)}</span>
@@ -557,23 +603,25 @@ function renderTools(tools) {
     </a>`).join('');
 }
 
-/* ---------- Inbox ---------- */
-function renderInbox(data) {
-  const c = (data.candidates || []).filter((x) => x.status !== 'rejected');
-  if (!c.length) {
-    $('#inbox-list').innerHTML = `<div class="empty">${esc(t('inbox.empty'))} ${esc(data.scout?.lastRun ? t('inbox.lastRan', { ago: ago(data.scout.lastRun) }) : t('inbox.every'))}</div>`;
-    return;
-  }
-  // Deliberately plain text: unreviewed repos can be copies or lures, so we don't link them.
-  $('#inbox-list').innerHTML = c.slice(0, 12).map((x) => `
-    <div class="cand">
-      <div>
-        <b>${esc(x.repo)}</b> <span class="tag tag-self">${esc(t('inbox.unreviewed'))}</span>
-        <p>${esc(x.description || t('inbox.noDesc'))}</p>
-        <p>${esc(t('inbox.foundVia', { x: (x.sources || [x.source]).filter(Boolean).join(', ') }))} · ${esc(ago(x.foundAt))} · ★ ${fmtK(x.stars)}${x.signals?.length ? ` · ${esc(x.signals.slice(0, 4).join(', '))}` : ''}</p>
-      </div>
-      <div class="c-score"><b>${Math.round(x.substance || 0)}</b>${esc(t('inbox.substance'))}</div>
-    </div>`).join('');
+/* ---------- Folded sections ---------- */
+// The watchlist and the toolkit start closed (owner's call, 2026-11-25): a <details> per section.
+function foldLabel(summary, showText) {
+  summary.innerHTML = `<span class="fold-show">${esc(showText)}</span><span class="fold-hide">${esc(t('fold.hide'))}</span>`;
+}
+// A link to something inside a closed section (#effort-… from the change feed or the bar) opens it first.
+function bindFolds() {
+  const openFor = (hash) => {
+    if (!/^#[\w-]+$/.test(hash || '')) return;
+    const el = document.getElementById(hash.slice(1));
+    const fold = el?.closest('details.fold');
+    if (!fold || fold.open) return;
+    fold.open = true;
+    observeBars();
+    requestAnimationFrame(() => el.scrollIntoView({ block: 'start' }));
+  };
+  window.addEventListener('hashchange', () => openFor(location.hash));
+  document.addEventListener('click', (ev) => { const a = ev.target.closest?.('a[href^="#"]'); if (a) openFor(a.getAttribute('href')); });
+  openFor(location.hash);
 }
 
 /* ---------- News ---------- */
@@ -644,11 +692,6 @@ function renderNews(news) {
 }
 
 /* ---------- Safety ---------- */
-function renderFlags(flags) {
-  $('#flag-list').innerHTML = flags.map((f) => `
-    <li><b>${esc(f.pattern)}<span>${esc(f.members?.length ? t('safety.seen', { n: f.members.length }) : f.label || '')}</span></b><p>${esc(f.reason)}</p></li>`).join('');
-}
-
 /* ---------- Method ---------- */
 function renderMethod() {
   const gwShare = MILESTONES[1].at;
