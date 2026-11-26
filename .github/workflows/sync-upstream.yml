@@ -50,15 +50,7 @@ jobs:
             exit 0
           fi
 
-          rsync -a --delete \
-            --exclude='/.git/' \
-            --exclude='/.claude/' \
-            --exclude='/dashboard/' \
-            --exclude='/google*.html' \
-            --exclude='/tools/open-dashboard.cmd' \
-            --exclude='/.github/workflows/sync-upstream.yml' \
-            --exclude='/.github/upstream-sync.sha' \
-            "$UPSTREAM_DIR/" ./
+          rsync -a --delete --exclude='/.git/' --exclude='/.claude/' --exclude='/dashboard/' --exclude='/google*.html' --exclude='/tools/open-dashboard.cmd' --exclude='/.github/workflows/sync-upstream.yml' --exclude='/.github/upstream-sync.sha' "$UPSTREAM_DIR/" ./
 
           python3 - <<'PY'
           from pathlib import Path
@@ -79,7 +71,7 @@ jobs:
               "SUPABASE_KEY": "''",
               "STATS_PAUSED": "true",
           }.items():
-              pattern = re.compile(rf"(?m)^export const {name} = [^\\r\\n]*")
+              pattern = re.compile(rf"(?m)^export const {name} = [^\r\n]*")
               text, count = pattern.subn(f"export const {name} = {value};", text)
               if count != 1:
                   raise SystemExit(f"Expected one {name} setting, found {count}")
@@ -87,7 +79,7 @@ jobs:
 
           pages = Path(".github/workflows/pages.yml")
           text = pages.read_text(encoding="utf-8")
-          text = re.sub(r"(?m)^[ \\t]*cp\\s+google.*?_site/.*(?:\\r?\\n|$)", "", text)
+          text = re.sub(r"(?m)^[ \t]*cp\s+google.*?_site/.*(?:\r?\n|$)", "", text)
           for marker in ("      # The main site,", "      - name: Deploy the Cloudflare mirror"):
               if marker in text:
                   start = text.index(marker)
@@ -97,7 +89,7 @@ jobs:
                   text = text[:start] + text[end:]
           if re.search(r"(?i)cloudflare_api|wrangler", text):
               raise SystemExit("Cloudflare deployment remains in pages.yml")
-          if re.search(r"(?m)^\\s*cp\\s+google.*?_site/", text):
+          if re.search(r"(?m)^\s*cp\s+google.*?_site/", text):
               raise SystemExit("Google verification copy remains in pages.yml")
           pages.write_text(text, encoding="utf-8")
 
@@ -106,15 +98,15 @@ jobs:
           heading = "## Personal GitHub Pages copy"
           if heading not in text:
               text = text.rstrip() + (
-                  "\\n\\n" + heading + "\\n\\n"
+                  "\n\n" + heading + "\n\n"
                   + "This repository is an independently deployed copy at "
                   + "https://baicai0922.github.io/portwatch-vi/. "
-                  + "The personal deployment leaves Supabase analytics disabled.\\n"
+                  + "The personal deployment leaves Supabase analytics disabled.\n"
               )
           readme.write_text(text, encoding="utf-8")
           PY
 
-          printf '%s\\n' "$upstream_sha" > .github/upstream-sync.sha
+          printf '%s\n' "$upstream_sha" > .github/upstream-sync.sha
           git add -A
           git add -f .github/upstream-sync.sha
           git config user.name "github-actions[bot]"
