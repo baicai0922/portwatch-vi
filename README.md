@@ -9,8 +9,6 @@
 
 No game files, keys or executables are hosted or linked, ever.
 
-This personal copy publishes at https://baicai0922.github.io/portwatch-vi/. Analytics and the original maintainer's Supabase backend are disabled in this copy.
-
 ## Deploy on GitHub Pages
 
 1. Create a new GitHub repository and push this folder to its `main` branch.
@@ -75,3 +73,8 @@ Then open http://localhost:8080. To try the scout locally with Node 20+, run `no
 ## Disclaimer
 
 Fan-made and unofficial. Not affiliated with Rockstar Games, Take-Two or Microsoft. Scores are editorial estimates from public READMEs, commits and issues, and self-reported claims are labelled. Maintainers who think their project is mis-scored can open an issue with evidence.
+
+
+## Personal GitHub Pages copy
+
+This repository is an independently deployed copy at https://baicai0922.github.io/portwatch-vi/. The personal deployment leaves Supabase analytics disabled.
