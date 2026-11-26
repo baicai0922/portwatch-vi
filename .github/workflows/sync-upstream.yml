@@ -1,0 +1,144 @@
+name: Sync upstream
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: Reapply the latest upstream files even when its commit is unchanged
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: portwatch-upstream-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.sync.outputs.changed }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Clone upstream
+        run: git clone --quiet --depth 1 https://github.com/4lwayz/portwatch-vi.git "$RUNNER_TEMP/portwatch-upstream"
+
+      - name: Sync upstream files
+        id: sync
+        env:
+          UPSTREAM_DIR: ${{ runner.temp }}/portwatch-upstream
+          FORCE_SYNC: ${{ inputs.force || false }}
+        run: |
+          set -euo pipefail
+          upstream_sha="$(git -C "$UPSTREAM_DIR" rev-parse HEAD)"
+          echo "upstream_sha=$upstream_sha" >> "$GITHUB_OUTPUT"
+          previous_sha="$(cat .github/upstream-sync.sha 2>/dev/null || true)"
+          if [[ "$upstream_sha" == "$previous_sha" && "$FORCE_SYNC" != "true" ]]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "Already synced with $upstream_sha."
+            exit 0
+          fi
+
+          rsync -a --delete \
+            --exclude='/.git/' \
+            --exclude='/.claude/' \
+            --exclude='/dashboard/' \
+            --exclude='/google*.html' \
+            --exclude='/tools/open-dashboard.cmd' \
+            --exclude='/.github/workflows/sync-upstream.yml' \
+            --exclude='/.github/upstream-sync.sha' \
+            "$UPSTREAM_DIR/" ./
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          personal = "https://baicai0922.github.io/portwatch-vi"
+          for name in ("index.html", "data/tracker.json", "scripts/lib/site-build.mjs"):
+              path = Path(name)
+              text = path.read_text(encoding="utf-8")
+              text = text.replace("https://portwatch-vi.xyz", personal)
+              text = text.replace("https://4lwayz.github.io/portwatch-vi", personal)
+              path.write_text(text, encoding="utf-8")
+
+          config = Path("assets/js/config.js")
+          text = config.read_text(encoding="utf-8")
+          for name, value in {
+              "SUPABASE_URL": "''",
+              "SUPABASE_KEY": "''",
+              "STATS_PAUSED": "true",
+          }.items():
+              pattern = re.compile(rf"(?m)^export const {name} = [^\\r\\n]*")
+              text, count = pattern.subn(f"export const {name} = {value};", text)
+              if count != 1:
+                  raise SystemExit(f"Expected one {name} setting, found {count}")
+          config.write_text(text, encoding="utf-8")
+
+          pages = Path(".github/workflows/pages.yml")
+          text = pages.read_text(encoding="utf-8")
+          text = re.sub(r"(?m)^[ \\t]*cp\\s+google.*?_site/.*(?:\\r?\\n|$)", "", text)
+          for marker in ("      # The main site,", "      - name: Deploy the Cloudflare mirror"):
+              if marker in text:
+                  start = text.index(marker)
+                  end = text.find("      # Tells Bing", start)
+                  if end < 0:
+                      raise SystemExit("Could not find the end of the Cloudflare block")
+                  text = text[:start] + text[end:]
+          if re.search(r"(?i)cloudflare_api|wrangler", text):
+              raise SystemExit("Cloudflare deployment remains in pages.yml")
+          if re.search(r"(?m)^\\s*cp\\s+google.*?_site/", text):
+              raise SystemExit("Google verification copy remains in pages.yml")
+          pages.write_text(text, encoding="utf-8")
+
+          readme = Path("README.md")
+          text = readme.read_text(encoding="utf-8")
+          heading = "## Personal GitHub Pages copy"
+          if heading not in text:
+              text = text.rstrip() + (
+                  "\\n\\n" + heading + "\\n\\n"
+                  + "This repository is an independently deployed copy at "
+                  + "https://baicai0922.github.io/portwatch-vi/. "
+                  + "The personal deployment leaves Supabase analytics disabled.\\n"
+              )
+          readme.write_text(text, encoding="utf-8")
+          PY
+
+          printf '%s\\n' "$upstream_sha" > .github/upstream-sync.sha
+          git add -A
+          git add -f .github/upstream-sync.sha
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git diff --cached --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No repository changes to commit."
+            exit 0
+          fi
+          site_changes="$(git diff --cached --name-only | grep -vFx '.github/upstream-sync.sha' || true)"
+          if [[ -z "$site_changes" ]]; then
+            git commit -m "chore: record upstream revision $upstream_sha"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            git commit -m "sync: update from upstream $upstream_sha"
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+          git push origin HEAD:main
+
+  deploy:
+    needs: sync
+    if: needs.sync.outputs.changed == 'true'
+    permissions:
+      contents: read
+      id-token: write
+      pages: write
+    uses: ./.github/workflows/pages.yml
